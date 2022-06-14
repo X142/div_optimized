@@ -1,4 +1,5 @@
 /bk/
-/obj/
+/obj/*
+!/obj/.gitkeep
 main
 
