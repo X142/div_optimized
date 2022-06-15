@@ -433,10 +433,50 @@ L_buf_HexString:
 
 
 
+L_div_by_10_64:
+; 64bit ÷ 64bit 除算を実行する
+; 
+; <<<ARGS
+; rdi : 被除数
+; >>>RETURN
+; rax : 商
+; rdx : 余り
+; --- DESTROY
+; rsi, rdx, rcx, rax
+    push rbp
+    mov rbp, rsp
 
+    ; rcx = p = 10
+    mov esi, 10
 
+    ; rdx = C/p = [(2^64)/10] + 1
+    mov rdx, 0x199999999999999a
 
+    ; rdx = q' = (n*(C/p))[127:64]
+    mov rax, rdi
+    mul rdx
+    mov rcx, rdx
 
+    ; rax = q'*p
+    mov rax, rcx
+    mul rsi
+
+    sub rdi, rax ; rdi = r' = n - q'*p
+    jnc .end_div_by_10_64 ; r' < 0 ?
+
+	; q = q' - 1
+    sub rcx, 1
+	; r = r' + p
+    add rax, rsi
+
+    .end_div_by_10_64:
+        mov rax, rcx
+        mov rdx, rdi
+
+    mov rsp, rbp
+    pop rbp
+
+	ret
 
 
 ;;; 以下更新中

@@ -411,9 +411,9 @@ Test_div_optimized_128:
 
         ; diff_p_minus_1_to_k, k の更新
         mov rdx, m_increment_k
-        sub rbx, rdx ; (p-1)-k -> (p-1)-(k-1)
+        sub rbx, rdx ; (p-1)-k -> (p-1)-(2k)
         je L_reset_k
-        add rbp, rdx ; k-1 -> (k+1)-1
+        add rbp, rdx ; k-1 -> (2k)-1
 
         jmp L_loop_div_set
 
@@ -464,6 +464,7 @@ div_optimized_128:
     push r13
     push r12
     push rbx
+
     push rbp
     mov rbp, rsp
 
@@ -613,6 +614,7 @@ div_optimized_128:
 
     mov rsp, rbp
     pop rbp
+
     pop rbx
     pop r12
     pop r13
