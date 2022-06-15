@@ -13,22 +13,24 @@ bits 64 ; 64bit mode
 default rel ; use rip-relative-addressing by default
 
 ; ================================================================
+%define DEBUG
+%define q_le_64bit
+%define div_optimized
 %define Cx_128_floor
+%define m_p 0x002386f26fc10000
 %define m_Cx_128_hi 0x0000000000000734
 %define m_Cx_128_lo 0xaca5f6226f0ada61
-%define m_p 0x002386f26fc10000
 %define m_pcs_check_points_in_div_set 4
 %define m_DBG_cnt_div_hi 0x0000000000000000
-%define m_DBG_cnt_div_lo 0x00000000000000ff
-%define m_init_expected_qutient_hi 0x0000000000000734
-%define m_init_expected_qutient_lo 0xaca5f6226f0ada61
-%define m_init_expected_remainder 0x00105e6f4ddeffff
-%define m_init_k 0x000000000000003f
-%define m_increment_k 0x00008e1bc9bf03ff
-
-%assign m_init_diff_p_minus_1_to_k m_p-1 - m_init_k
-
-%define DEBUG
+%define m_DBG_cnt_div_lo 0x0000000000000fff
+%define m_n_init_hi 0x0020000000000000
+%define m_n_init_lo 0x0000000000000000
+%define m_init_expected_quotient_hi 0x0000000000000000
+%define m_init_expected_quotient_lo 0xe69594bec44de15b
+%define m_init_expected_remainder 0x000a928ca5650000
+%define m_init_k 0x00000000000003ff
+%define m_increment_k 0x000008e1bc9bf03f
+%define m_init_diff_p_minus_1_to_k m_p-1 - m_init_k
 ; ----------------------------------------------------------------
 %define sys_exit 0x3c
 
@@ -37,15 +39,6 @@ section .text
 align 4096
 _start:
     mov rbp, rsp
-
-; デバグスペース ----------------------------------------------------------------
-    nop
-
-;     ; exit with return code 0
-;     mov edi, 0
-;     mov eax, sys_exit
-;     syscall
-; ----------------------------------------------------------------
 
     call Test_div_optimized_128
     mov edi, eax
@@ -56,6 +49,7 @@ _start:
     mov eax, sys_exit
     syscall
 
+; ----------------------------------------------------------------
 Test_div_optimized_128:
 ; ----------------------------------------------------------------
 ; 被除数 n, 除数 p に対し
@@ -109,12 +103,15 @@ Test_div_optimized_128:
         pop rcx
     %endmacro
 
+    %macro M_div 0
+        mov rdx, rdi
+        mov rax, rsi
+        mov rcx, m_p
+        div rcx
+    %endmacro
+
     %macro M_div_optimized 0
     ; rdi:rsi : 被除数
-        ; rdx:rcx = Cx
-        mov rdx, m_Cx_128_hi
-        mov rcx, m_Cx_128_lo
-        mov r8, m_p ; r8 = 除数
         push rdi ; 被除数の保存
         push rsi ; 被除数の保存
         call div_optimized_128
@@ -123,6 +120,7 @@ Test_div_optimized_128:
     %endmacro
 
     %macro M_check_quotient 0
+    ; rcx:rax : 商
         %define r_expected_quotient_hi r14
         %define r_expected_quotient_lo r15
 
@@ -132,7 +130,7 @@ Test_div_optimized_128:
 
             mov rsi, L_msg_quotient
             call G_cerr_string
-            mov rdi, rdx
+            mov rdi, rcx
             call G_cerr_uint64_hex
             mov rdi, rax
             call G_cerr_uint64_hex
@@ -150,8 +148,10 @@ Test_div_optimized_128:
             pop rsi
         %endif
 
-        cmp rdx, r_expected_quotient_hi
-        jne L_failed_in_Test_div_optimized
+        %ifndef q_le_64bit
+            cmp rcx, r_expected_quotient_hi
+            jne L_failed_in_Test_div_optimized
+        %endif
 
         cmp rax, r_expected_quotient_lo
         jne L_failed_in_Test_div_optimized
@@ -159,22 +159,19 @@ Test_div_optimized_128:
 
     %macro M_msg_check_remainder 1
     ; %1 : 期待する余り
-    ; rcx : 余り
+    ; rdx : 余り
         push rsi
         push rdi
 
         mov rsi, L_msg_remainder
         call G_cerr_string
-        mov rdi, rcx
+        mov rdi, rdx
         call G_cerr_uint64_hex
 
         mov rsi, L_msg_expected_remainder
         call G_cerr_string
         mov rdi, %1
         call G_cerr_uint64_hex
-
-        mov rsi, L_msg_OK
-        call G_cerr_string
 
         call G_cerr_LF
 
@@ -184,24 +181,24 @@ Test_div_optimized_128:
 
     %macro M_check_remainder 1
     ; %1 : 期待する余り
-    ; rcx : 余り
+    ; rdx : 余り
         %ifdef DEBUG
             M_msg_check_remainder %1
         %endif
 
-        mov rdx, %1
-        cmp rcx, rdx
+        mov rcx, %1
+        cmp rdx, rcx
         jne L_failed_in_Test_div_optimized
     %endmacro
 
     %macro M_check_remainder_imm32 1
     ; %1 : 期待する余り (imm32)
-    ; rcx : 余り
+    ; rdx : 余り
         %ifdef DEBUG
             M_msg_check_remainder %1
         %endif
 
-        cmp rcx, %1
+        cmp rdx, %1
         jne L_failed_in_Test_div_optimized
     %endmacro
 
@@ -215,16 +212,16 @@ Test_div_optimized_128:
     mov rbp, rsp
 
     ; rdi:rsi = 被除数の初期値
-    mov rdi, 0xffffffffffffffff
-    mov rsi, 0xffffffffffffffff
+    mov rdi, m_n_init_hi
+    mov rsi, m_n_init_lo
 
     ; r12:r13 = 除算実行回数
     mov r12, m_DBG_cnt_div_hi
     mov r13, m_DBG_cnt_div_lo
 
     ; r14:r15 = 期待する商の初期値
-    mov r14, m_init_expected_qutient_hi
-    mov r15, m_init_expected_qutient_lo
+    mov r14, m_init_expected_quotient_hi
+    mov r15, m_init_expected_quotient_lo
 
     push rbp ; rbp を保存
 
@@ -241,7 +238,11 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
@@ -263,7 +264,11 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
@@ -281,7 +286,11 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
@@ -310,7 +319,11 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
@@ -328,26 +341,15 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
             M_check_remainder rbp
-
-; push rdi
-; call G_cerr_LF
-; call G_cerr_LF
-; call G_cerr_LF
-; mov rdi, rbp
-; call G_cerr_uint64_hex
-; call G_cerr_LF
-; call G_cerr_LF
-; call G_cerr_LF
-; pop rdi
-
-; mov rax, 60
-; mov rdi, 0
-; syscall
 
             ; 次の被除数をセット
             ; rsi:rdi -= k-1
@@ -362,7 +364,11 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
@@ -379,7 +385,11 @@ Test_div_optimized_128:
             %endif
 
             ; 除算実行
-            M_div_optimized
+            %ifdef div_optimized
+                M_div_optimized
+            %else
+                M_div
+            %endif
 
             ; 検算
             M_check_quotient
@@ -391,7 +401,6 @@ Test_div_optimized_128:
             sbb rdi, rdx
 
         ; 除算実行回数のデクリメント
-        xor edx, edx
         sub r13, m_pcs_check_points_in_div_set
         sbb r12, rdx
         jc L_end_Test
@@ -446,11 +455,9 @@ div_optimized_128:
 ; 
 ; <<< ARGS
 ; rdi:rsi: 被除数
-; rdx:rcx: Cx
-; r8: 除数
 ; >>> RETURN
-; rdx:rax: 商
-; rcx: 余り
+; rcx:rax: 商
+; rdx: 余り
 ; --- DESTROY
 ; rdi, rsi, rdx, rcx, r9, r10, r11
     push r14
@@ -459,6 +466,11 @@ div_optimized_128:
     push rbx
     push rbp
     mov rbp, rsp
+
+    ; rdx:rcx = Cx
+    mov rdx, m_Cx_128_hi
+    mov rcx, m_Cx_128_lo
+    mov r8, m_p ; r8 = p
 
     ; rdi:rsi = n[127:64]:n[63:0]
     ; rbx:rcx = Cx[127:64]:Cx[63:0]
@@ -560,7 +572,7 @@ div_optimized_128:
 
         %endif
 
-    %elifdef Cx_128_ceiling
+    %else
         jc L_overflowed_q_prime_p ; q'*p = (q+1)*p >= 2^128 ?
 
         ; rdi:rsi = r' = n - q'*p
@@ -592,14 +604,12 @@ div_optimized_128:
 
             add rsi, r8 ; rsi = r = r' + p
 
-    %else
-        %error "Neither Cx_128_floor or Cx_128_ceiling was defined!"
     %endif
 
     L_end_div:
-        mov rdx, rbx
         mov rax, rcx
-        mov rcx, rsi
+        mov rcx, rbx
+        mov rdx, rsi
 
     mov rsp, rbp
     pop rbp
@@ -614,8 +624,9 @@ div_optimized_128:
 section .data
     L_msg_DBG_cnt:
         DB "DBG_cnt: ",0xa,0
+
     L_msg_op_div:
-        DB " ÷ ",0xa,0
+        DB "       ÷",0xa,0
 
     L_msg_quotient:
         DB "商の計算結果: ",0xa,0
@@ -626,9 +637,6 @@ section .data
     L_msg_expected_remainder:
         DB "期待する余り: ",0xa,0
 
-    L_msg_OK:
-        DB "[OK]", 0xa, 0
-
 ; ----------------------------------------------------------------
     L_err_check_quotient_and_remainder:
-        DB "!! 商または余りが間違っています", 0xa, 0
+        DB "!! 商または余りが間違っています",0xa,0
