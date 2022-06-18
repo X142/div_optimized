@@ -463,20 +463,20 @@ L_uint64_to_DecString:
 	push rbp
 	mov rbp, rsp
 
-    mov rax, rdi
+	mov rax, rdi
 	mov edi, 10
-    add rsi, 20
+	add rsi, 20
 	xor ecx, ecx
-    xor r8d, r8d
+	xor r8d, r8d
 	mov r9, rsi
 	mov rbx, 0x3030303030303030
 
-    L_loop_uint64_to_DecString:
-        add ecx, 8
+	L_loop_uint64_to_DecString:
+		add ecx, 8
 
 		shl r8, 8
 		xor edx, edx
-        div rdi
+		div rdi
 		add r8, rdx
 
 		; rax = 0 ?
@@ -485,7 +485,7 @@ L_uint64_to_DecString:
 
 		; ecx % 64 = 0 ?
 		test ecx, 63
-        jne L_loop_uint64_to_DecString
+		jne L_loop_uint64_to_DecString
 
 		or r8, rbx
 		sub rsi, 8
