@@ -11,12 +11,6 @@ global G_cerr_uint64_hex
 global G_cerr_uint128_hex
 global G_cerr_uint64_dec
 
-global G_set_dec_str_to_buf
-global G_cout_2
-global G_cout_num
-global strlen
-global str_to_num
-
 bits 64 ; 64bit mode
 ; In 64bit mode, rip-relative-addressing is supported 
 ; for all instructions that uses ModR/M by setting
@@ -416,9 +410,9 @@ G_cerr_uint64_dec:
 ; -
 ; --- DESTROY
 ; -
-	push rax
-	push rdx
-	push rsi
+	push rax ; for debug
+	push rdx ; for debug
+	push rsi ; for debug
 
 	push rbp
 	mov rbp, rsp
@@ -583,7 +577,7 @@ G_DecString_to_uint64:
 	; ecx % 8 先に処理を行い ecx を 8n に
 	.ecx_bit3_DecString_to_uint64:
 		test ecx, 7
-		je .ecx_aligned_8
+		je .ecx_8n_DecString_to_uint64
 
 	.ecx_bit2_DecString_to_uint64:
 		test ecx, 4
@@ -637,7 +631,7 @@ G_DecString_to_uint64:
 
 	.ecx_bit0_DecString_to_uint64:
 		test ecx, 1
-		je .ecx_aligned_8
+		je .ecx_8n_DecString_to_uint64
 
 		mov dil, [rsi]
 		and edi, 0x0f
@@ -650,8 +644,9 @@ G_DecString_to_uint64:
 
 		add rsi, 1
 
-	.ecx_aligned_8:
+	.ecx_8n_DecString_to_uint64:
 	and ecx, ~7
+
 	je L_end_DecString_to_uint64
 	mov r9, 0x0f0f0f0f0f0f0f0f
 
