@@ -5,10 +5,11 @@
 ; callee-saved-registers in UNIX: rsp, rbp, rbx, r12-r15
 
 global G_cerr_LF
+global G_cerr_string
 global G_cerr_uint32_hex
 global G_cerr_uint64_hex
 global G_cerr_uint128_hex
-global G_cerr_string
+global G_cerr_uint64_dec
 
 global G_set_dec_str_to_buf
 global G_cout_2
@@ -38,8 +39,8 @@ G_cerr:
 ; -
 ; --- DESTROY
 ; -
-	push r11 ; for debug ; Note: syscall destroys rcx, r11
 	push rax ; for debug
+	push r11 ; for debug ; Note: syscall destroys rcx, r11
 	push rcx ; for debug ; Note: syscall destroys rcx, r11
 	push rdi ; for debug
 
@@ -55,8 +56,8 @@ G_cerr:
 
 	pop rdi
 	pop rcx
-	pop rax
 	pop r11
+	pop rax
 
 	ret
 
@@ -177,10 +178,10 @@ G_cerr_uint128_hex:
 ; -
 ; --- DESTROY
 ; -
+	push rax ; for debug
 	sub rsp, 8 ; for 16 bytes aligned
 	sub rsp, 16
 	movdqa [rsp], xmm0 ; for debug
-	push rax ; for debug
 	push rdx ; for debug
 	push rsi ; for debug
 	push rdi ; for debug
@@ -220,10 +221,10 @@ G_cerr_uint128_hex:
 	pop rdi
 	pop rsi
 	pop rdx
-	pop rax
 	movdqa xmm0, [rsp]
 	add rsp, 16
 	add rsp, 8
+	pop rax
 
 	ret
 
@@ -366,7 +367,7 @@ G_cerr_string:
 
 L_strlen:
 ; ----------------------------------------------------------------
-; null-teminated-string の長さを取得する
+; null-teminated-string の長さ (最大 64bit 最大値) を取得する
 ; 
 ; <<< ARGS
 ; rdi : 文字列が格納されたアドレス
@@ -405,233 +406,163 @@ L_strlen:
 
 	ret
 
-; ================================================================
-section .data
-align 4
-LF:
-	DB 0xa
-
-align 64
-L_buf_HexString:
-	DB '00000000 00000000 00000000 00000000 '
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-L_div_by_10_64:
-; 64bit ÷ 64bit 除算を実行する
+G_cerr_uint64_dec:
+; ----------------------------------------------------------------
+; 符号なし 64bit 値を 改行 (0xa) 付き 10 進数で表示する
 ; 
-; <<<ARGS
-; rdi : 被除数
-; >>>RETURN
-; rax : 商
-; rdx : 余り
+; <<< ARGS
+; rdi : 64bit 値
+; >>> RETURN
+; -
 ; --- DESTROY
-; rsi, rdx, rcx, rax
-    push rbp
-    mov rbp, rsp
-
-    ; rcx = p = 10
-    mov esi, 10
-
-    ; rdx = C/p = [(2^64)/10] + 1
-    mov rdx, 0x199999999999999a
-
-    ; rdx = q' = (n*(C/p))[127:64]
-    mov rax, rdi
-    mul rdx
-    mov rcx, rdx
-
-    ; rax = q'*p
-    mov rax, rcx
-    mul rsi
-
-    sub rdi, rax ; rdi = r' = n - q'*p
-    jnc .end_div_by_10_64 ; r' < 0 ?
-
-	; q = q' - 1
-    sub rcx, 1
-	; r = r' + p
-    add rax, rsi
-
-    .end_div_by_10_64:
-        mov rax, rcx
-        mov rdx, rdi
-
-    mov rsp, rbp
-    pop rbp
-
-	ret
-
-
-;;; 以下更新中
-
-; ----------------------------------------------------------------
-; G_set_dec_str_to_buf
-; edi で渡された値を、10進数の文字列に変換する
-; 32 bit 値までの対応
-
-; <<< IN
-; edi : 10進数の文字列に変換したい値
-; >>> OUT
-; rax : 変換された文字列がストアされた先頭アドレス
-;   文字列の先頭に文字数が 32bit 値で格納されている
-G_set_dec_str_to_buf:
-	push	rdi ; for debug
-	push	rsi ; for debug
-	push	rdx ; for debug
-	push	rcx ; for debug
-	push	r8  ; for debug
-
-	mov eax, edi ; 被除数
-	mov edi, 10 ; 除数
-	mov rsi, L_buf_dec_str + 4 + 10 ; 4:文字数, 10:32bit値の最大桁数
-	xor edx, edx
-	xor ecx, ecx ; 文字数カウンタ
-	xor r8d, r8d ; 10 による剰余
-
-	L_loop_1:
-		div edi
-
-		shl r8d, 8
-		add r8d, edx
-
-		xor edx, edx
-		add ecx, 1
-
-		; ecx が 4 の倍数
-		; r8d をストア
-		test ecx, 3
-		je L_loop_1_load
-
-		; ecx が 4 の倍数でない かつ eax == 0 ?
-		; ループ継続 または r8d,文字数をストアして終了
-		or eax, eax
-		je L_loop_1_shl_load
-
-		jmp L_loop_1
-
-	; （例）
-	; 	r8d に 0321 と入ってたら、
-	; 	little endian に注意して、1bit 左シフトして、
-	; 	3210 にしてロードしなければならない
-	; これは、4 - (ecx % 4) bit 左シフトするということ
-	L_loop_1_shl_load:
-		mov edi, ecx ; 文字数 ecx を保存しておく
-
-		; ecx = edx = 4 - (ecx % 4)
-		and ecx, 3
-		neg ecx
-		add ecx, 4
-		; 文字列の先頭のアドレス = rsi + (4 - ecx % 4)
-		; 	を求めるときに必要になるので、edx に保存しておく
-		mov edx, ecx
-
-		shl ecx, 3 ; 8 倍して、その分 r8d を左シフト
-		shl r8d, cl
-
-		mov ecx, edi
-	L_loop_1_load:
-		sub rsi, 4
-		or r8d, 0x30303030
-		mov [rsi], r8d
-		xor r8d, r8d
-
-		or eax, eax
-		jne L_loop_1
-
-	add rsi, rdx ; rsi に、保存しておいた edx を加算すると、丁度文字列が始まる 先頭アドレスになる
-	sub rsi, 4 ; 先頭に文字数 ecx を入れるので、4 減算する
-	mov [rsi], ecx
-	mov rax, rsi
-	
-	pop	r8
-	pop	rcx
-	pop	rdx
-	pop	rsi
-	pop	rdi
-
-	ret
-	
-; ================================================================
-section .data
-; 32 bit 値は最大で 10 文字
-; 文字数をストアするため、さらに 4 bytes 確保している
-L_buf_dec_str:
-	db "00003412341234"
-
-; ================================================================
-section .text
-; ----------------------------------------------------------------
-; G_cout_2
-; 文字列を fd2 に表示する
-; <<< IN
-; rsi : 文字列が格納されているアドレス
-;   先頭に 4 byte 値で文字列長が格納されている
-G_cout_2:
-	push	rdi ; for debug
-	push	rdx ; for debug
-	push	rcx ; for debug
-	push	rax ; for debug
-	
-	mov eax, sys_write
-	mov edi, 2 ; fd = 2
-	mov edx, [rsi] ; 文字数
-	add rsi, 4 ; 文字列の先頭アドレス
-	syscall
-	sub rsi, 4
-	
-	pop rax
-	pop rcx
-	pop rdx
-	pop rdi
-
-	ret
-
-G_cout_num:
-	push rsi
+; -
 	push rax
+	push rdx
+	push rsi
 
-	call G_set_dec_str_to_buf
+	push rbp
+	mov rbp, rsp
+
+	mov rsi, L_buf_DecString
+	call L_uint64_to_DecString
+
 	mov rsi, rax
-	call G_cout_2
+	call G_cerr
 
-	pop rax
+	call G_cerr_LF
+
+	mov rsp, rbp
+	pop rbp
+
 	pop rsi
+	pop rdx
+	pop rax
 
 	ret
 
-section .text
+L_uint64_to_DecString:
 ; ----------------------------------------------------------------
-; str_to_num
-; 	数字文字列を数値へ変換する
-; <<< IN
-; rdi : 数字文字列のアドレス
-; 	null terminated かつ 10 bytes 以内
-; >>> OUT
-; rax : 変換された数値
+; 符号なし 64bit 値を 10 進数文字列に変換する
+; 
+; <<< ARGS
+; rdi : 64bit 値
+; rsi : 変換された文字列を格納する 20bytes バッファのアドレス
+; 	  : 20bytes の 20 は 64bit 値の 10 進数における最大桁数
+; >>> RETURN
+; rax : 変換された文字列の先頭アドレス
+; rdx : 変換された文字列の長さ
 ; --- DESTROY
-; rdi, rsi, rcx, rdx, r8, r9, r10
-str_to_num:
-	mov ecx, 10 + 1
-	xor eax, eax ; null
+; -
+	push r9 ; for debug
+	push r8 ; for debug
+	push rcx ; for debug
+	push rsi ; for debug
+	push rdi ; for debug
+	push rbx
+
+	push rbp
+	mov rbp, rsp
+
+    mov rax, rdi
+	mov edi, 10
+    add rsi, 20
+	xor ecx, ecx
+    xor r8d, r8d
+	mov r9, rsi
+	mov rbx, 0x3030303030303030
+
+    L_loop_uint64_to_DecString:
+        add ecx, 8
+
+		shl r8, 8
+		xor edx, edx
+        div rdi
+		add r8, rdx
+
+		; rax = 0 ?
+		or rax, rax
+		je L_store_uint64_to_DecString
+
+		; ecx % 64 = 0 ?
+		test ecx, 63
+        jne L_loop_uint64_to_DecString
+
+		or r8, rbx
+		sub rsi, 8
+		mov [rsi], r8
+		jmp L_loop_uint64_to_DecString
+
+	L_store_uint64_to_DecString:
+		neg ecx
+		add ecx, 64
+		and ecx, 63
+
+		; loop3 ?
+		cmp ecx, 64*2 + 8
+		jnc .loop3_uint64_to_DecString
+
+			shl r8, cl
+
+			or r8, rbx
+			sub rsi, 8
+			mov [rsi], r8
+
+			jmp L_end_uint64_to_DecString
+
+		.loop3_uint64_to_DecString:
+			shl r8, cl
+
+			or r8d, 0x30303030
+			sub rsi, 4
+			mov [rsi], r8d
+
+	L_end_uint64_to_DecString:
+	shr ecx, 3
+	add rsi, rcx
+
+	sub r9d, esi
+
+	mov rax, rsi
+	mov edx, r9d
+
+	mov rsp, rbp
+	pop rbp
+
+	pop rbx
+	pop rdi
+	pop rsi
+	pop rcx
+	pop r8
+	pop r9
+
+	ret
+
+G_DecString_to_uint64:
+; ----------------------------------------------------------------
+; null terminated 数字文字列 (最大 20bytes) を 64bit 値へ変換する
+; 
+; <<< ARGS
+; rdi : 数字文字列のアドレス
+; >>> RETURN
+; rax : 64bit 値
+; --- DESTROY
+; -
 	cld ; clear DF
-	repne scasb
+
+	push r9
+	push r8
+	push rcx
+	push rdx
+	push rsi
+	push rdi
+
+	push rbp
+	mov rbp, rsp
+
+	mov rsi, rdi ; rdi -> rsi
+
+	mov ecx, 20 + 1
+	xor eax, eax ; compare char = 0x0 (null)
 	; while (rcx != 0 || ZF != 1)
 	; {
 	; 	if (*rdi == rax)
@@ -641,46 +572,135 @@ str_to_num:
 	; 	++rdi;
 	; 	--rcx;
 	; }
+	repne scasb
 
-	; rdi = rdi + length
+	; rcx = null を除く文字数
+	not rcx
+	add rcx, 20 + 1
 
-	; ecx = (10 + 1) - length
-	; (10 + 1) - (ecx + 1) = length - 1
-	not ecx
-	add ecx, 10 + 1 ; 文字数（null を除く）
+	mov r8d, 10
 
-	je str_to_num_ret ; null only の場合、0を返す
+	; ecx % 8 先に処理を行い ecx を 8n に
+	.ecx_bit3_DecString_to_uint64:
+		test ecx, 7
+		je .ecx_aligned_8
 
-	mov esi, ecx ; 文字数 - 1
-	mov r9d, 10 ; 乗数
+	.ecx_bit2_DecString_to_uint64:
+		test ecx, 4
+		je .ecx_bit1_DecString_to_uint64
 
-	sub rdi, rcx ; rdi = 先頭 + 1
-	sub rdi, 5 ; rdi = 先頭 - 4
+		mov edi, [rsi]
+		and edi, 0x0f0f0f0f
 
-	str_to_num_load:
-		add rdi, 4
-		mov r8d, [rdi]
-		;; '~' で書いても良いかな
-		and r8d, 0xcfcfcfcf ; ⇔ sub r8d, 0x30303030
-		sub esi, 4 ; ecx = esi (= ecx - 4) になったら break
-		jns str_to_num_add
-		xor esi, esi ; ecx = esi (= 0) になったら break
-		
-	str_to_num_add:
-		mul r9d ; 10倍
+		; mul r8d
+		mov edx, 0xff
+		and edx, edi
+		add eax, edx
+		shr edi, 8
 
-		mov r10d, 0xff ; この３行は、改善の余地があるか？
-		and r10d, r8d
-		add eax, r10d
+		%rep 2
+		mul r8d
+		mov edx, 0xff
+		and edx, edi
+		add eax, edx
+		shr edi, 8
+		%endrep
 
-		shr r8d, 8
+		mul r8d
+		mov edx, 0xff
+		and edx, edi
+		add eax, edx
+		; shr edi, 8
 
-		sub ecx, 1
-		cmp ecx, esi
-		jne str_to_num_add
+		add rsi, 4
 
-		or esi, esi
-		jne str_to_num_load
+	.ecx_bit1_DecString_to_uint64:
+		test ecx, 2
+		je .ecx_bit0_DecString_to_uint64
 
-	str_to_num_ret:
+		mov di, [rsi]
+		and edi, 0x0f0f
+
+		mul r8d
+		mov edx, 0xff
+		and edx, edi
+		add eax, edx
+		shr edi, 8
+
+		mul r8d
+		mov edx, 0xff
+		and edx, edi
+		add eax, edx
+		; shr edi, 8
+
+		add rsi, 2
+
+	.ecx_bit0_DecString_to_uint64:
+		test ecx, 1
+		je .ecx_aligned_8
+
+		mov dil, [rsi]
+		and edi, 0x0f
+
+		mul r8d
+		mov edx, 0xff
+		and edx, edi
+		add eax, edx
+		; shr edi, 8
+
+		add rsi, 1
+
+	.ecx_aligned_8:
+	and ecx, ~7
+	je L_end_DecString_to_uint64
+	mov r9, 0x0f0f0f0f0f0f0f0f
+
+	L_loop_DecString_to_uint64:
+		mov rdi, [rsi]
+		and rdi, r9
+
+		%rep 7
+		mul r8
+		mov edx, 0xff
+		and edx, edi
+		add rax, rdx
+		shr rdi, 8
+		%endrep
+
+		mul r8
+		mov edx, 0xff
+		and edx, edi
+		add rax, rdx
+		; shr rdi, 8
+
+		add rsi, 8
+
+		sub ecx, 8
+
+		jne L_loop_DecString_to_uint64
+
+	L_end_DecString_to_uint64:
+	mov rsp, rbp
+	pop rbp
+
+	pop rdi
+	pop rsi
+	pop rdx
+	pop rcx
+	pop r8
+	pop r9
+
 	ret
+
+; ================================================================
+section .data
+align 4
+LF:
+	DB 0xa
+
+align 64
+L_buf_HexString:
+	DB "00000000 00000000 00000000 00000000 "
+
+L_buf_DecString:
+	DB "00000000000000000000"
