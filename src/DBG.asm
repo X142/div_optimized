@@ -10,6 +10,7 @@ global G_cerr_uint32_hex
 global G_cerr_uint64_hex
 global G_cerr_uint128_hex
 global G_cerr_uint64_dec
+global G_DecString_to_uint64
 
 bits 64 ; 64bit mode
 ; In 64bit mode, rip-relative-addressing is supported 
@@ -466,7 +467,7 @@ L_uint64_to_DecString:
 	mov rbx, 0x3030303030303030
 
 	L_loop_uint64_to_DecString:
-		add ecx, 8
+		sub ecx, 8
 
 		shl r8, 8
 		xor edx, edx
@@ -487,14 +488,11 @@ L_uint64_to_DecString:
 		jmp L_loop_uint64_to_DecString
 
 	L_store_uint64_to_DecString:
-		neg ecx
-		add ecx, 64
-		and ecx, 63
-
 		; loop3 ?
-		cmp ecx, 64*2 + 8
-		jnc .loop3_uint64_to_DecString
+		cmp ecx, -(64*2+8)
+		jc .loop3_uint64_to_DecString
 
+			and ecx, 63
 			shl r8, cl
 
 			or r8, rbx
@@ -504,6 +502,7 @@ L_uint64_to_DecString:
 			jmp L_end_uint64_to_DecString
 
 		.loop3_uint64_to_DecString:
+			and ecx, 31
 			shl r8, cl
 
 			or r8d, 0x30303030
@@ -576,11 +575,11 @@ G_DecString_to_uint64:
 
 	; ecx % 8 先に処理を行い ecx を 8n に
 	.ecx_bit3_DecString_to_uint64:
-		test ecx, 7
+		test ecx, 0111b
 		je .ecx_8n_DecString_to_uint64
 
 	.ecx_bit2_DecString_to_uint64:
-		test ecx, 4
+		test ecx, 0100b
 		je .ecx_bit1_DecString_to_uint64
 
 		mov edi, [rsi]
@@ -594,6 +593,11 @@ G_DecString_to_uint64:
 
 		%rep 2
 		mul r8d
+		; mul の 結果が下位 64bit に収まることが分かっているので
+		; xor edx, edx により rdx の依存関係が無いことを明示的に示し
+		; アウトオブオーダ実行を促進する
+		; ということを考えたけど、別のレジスタを使う方が良いと思う
+		; xor edx, edx
 		mov edx, 0xff
 		and edx, edi
 		add eax, edx
@@ -609,7 +613,7 @@ G_DecString_to_uint64:
 		add rsi, 4
 
 	.ecx_bit1_DecString_to_uint64:
-		test ecx, 2
+		test ecx, 0010b
 		je .ecx_bit0_DecString_to_uint64
 
 		mov di, [rsi]
@@ -630,7 +634,7 @@ G_DecString_to_uint64:
 		add rsi, 2
 
 	.ecx_bit0_DecString_to_uint64:
-		test ecx, 1
+		test ecx, 0001b
 		je .ecx_8n_DecString_to_uint64
 
 		mov dil, [rsi]
@@ -646,10 +650,9 @@ G_DecString_to_uint64:
 
 	.ecx_8n_DecString_to_uint64:
 	and ecx, ~7
-
 	je L_end_DecString_to_uint64
-	mov r9, 0x0f0f0f0f0f0f0f0f
 
+	mov r9, 0x0f0f0f0f0f0f0f0f
 	L_loop_DecString_to_uint64:
 		mov rdi, [rsi]
 		and rdi, r9
@@ -693,9 +696,11 @@ align 4
 LF:
 	DB 0xa
 
+; xmm を表示する為に 16 bytes aligned を要求する
 align 64
 L_buf_HexString:
-	DB "00000000 00000000 00000000 00000000 "
+	times 4 DB `\0\0\0\0\0\0\0\0 `
 
+align 32
 L_buf_DecString:
-	DB "00000000000000000000"
+	times 20 DB 0
